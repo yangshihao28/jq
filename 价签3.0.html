@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>自动化平面价签系统</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 引入打包所需库 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- 新增：用于生成原生下拉菜单的高级 Excel 库 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+  <style>
+    /* 隐藏滚动条但保留功能 */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="flex flex-col h-screen bg-gray-50 text-gray-800 font-sans">
+  
+  <style id="font-styles"></style>
+
+  <!-- 头部 -->
+  <header class="bg-white shadow-sm px-6 py-4 flex justify-between items-center z-10 flex-shrink-0">
+    <div>
+      <h1 class="text-xl font-bold text-indigo-600">自动化平面价签系统 <span class="text-xs font-normal text-gray-400">双画板并行版</span></h1>
+      <p class="text-xs text-gray-500">90mm x 30mm | 300 DPI | 中心点对齐 | A4无边距排版</p>
+    </div>
+    <div class="flex space-x-2 bg-gray-100 p-1 rounded-lg">
+      <button id="tab-design" onclick="switchTab('design')" class="px-4 py-2 rounded-md text-sm font-medium transition-colors bg-white shadow text-indigo-600">模板设计</button>
+      <button id="tab-data" onclick="switchTab('data')" class="px-4 py-2 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-200">数据表格与生成</button>
+    </div>
+  </header>
+
+  <main class="flex-1 overflow-hidden relative">
+    
+    <!-- 设计视图 -->
+    <div id="view-design" class="absolute inset-0 flex transition-opacity duration-300 opacity-100 z-10">
+      
+      <!-- 左侧工具栏 -->
+      <div class="w-64 bg-white border-r border-gray-200 flex flex-col">
+        <div class="p-4 overflow-y-auto flex-1 flex flex-col gap-4">
+          
+          <!-- 当前操作指示器 -->
+          <div class="mb-2 p-3 bg-indigo-50 rounded-lg text-center border border-indigo-100 shadow-inner">
+             <span class="text-xs text-gray-500 block mb-1">当前正在操作</span>
+             <span id="active-canvas-indicator" class="text-sm font-bold text-indigo-600 flex items-center justify-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-indigo-500"></span> 单价签模板
+             </span>
+             <span class="text-[10px] text-gray-400 mt-1 block">点击右侧画板即可切换</span>
+          </div>
+
+          <div>
+            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">添加占位符变量</h3>
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="addPlaceholder('IP名称', 'ipName', '#000000', 12)" class="px-2 py-2 bg-indigo-50 text-indigo-600 rounded text-sm hover:bg-indigo-100 border border-indigo-100 shadow-sm">+ IP名</button>
+              <button onclick="addPlaceholder('商品名称', 'productName', '#000000', 16, true)" class="px-2 py-2 bg-indigo-50 text-indigo-600 rounded text-sm hover:bg-indigo-100 border border-indigo-100 shadow-sm">+ 商品名</button>
+              <button onclick="addPlaceholder('价格', 'price', '#e11d48', 22, true)" class="px-2 py-2 bg-indigo-50 text-indigo-600 rounded text-sm hover:bg-indigo-100 border border-indigo-100 shadow-sm">+ 价格</button>
+              <button onclick="addPlaceholder('单位', 'unit', '#666666', 10)" class="px-2 py-2 bg-indigo-50 text-indigo-600 rounded text-sm hover:bg-indigo-100 border border-indigo-100 shadow-sm">+ 单位</button>
+              <button onclick="addPlaceholder('副价格', 'price2', '#f59e0b', 22, true)" class="px-2 py-2 bg-amber-50 text-amber-600 rounded text-sm hover:bg-amber-100 border border-amber-100 shadow-sm">+ 副价格</button>
+              <button onclick="addPlaceholder('副单位', 'unit2', '#666666', 10)" class="px-2 py-2 bg-amber-50 text-amber-600 rounded text-sm hover:bg-amber-100 border border-amber-100 shadow-sm">+ 副单位</button>
+            </div>
+          </div>
+          <hr class="border-gray-100" />
+          <div>
+            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">添加通用元素</h3>
+            <div class="flex flex-col gap-2">
+              <button onclick="addNormalText()" class="px-3 py-2 bg-gray-50 text-gray-700 rounded text-sm hover:bg-gray-100 border border-gray-200">添加固定文本</button>
+              <label class="px-3 py-2 bg-gray-50 text-gray-700 rounded text-sm hover:bg-gray-100 border border-gray-200 cursor-pointer text-center block">
+                添加图片/SVG <input type="file" accept="image/*,.svg" class="hidden" onchange="handleFileUpload(event, 'img')" />
+              </label>
+            </div>
+          </div>
+          <hr class="border-gray-100" />
+          <div>
+            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">全局资源</h3>
+            <label class="px-3 py-2 bg-purple-50 text-purple-700 rounded text-sm hover:bg-purple-100 border border-purple-200 cursor-pointer text-center block mb-2">
+              + 上传字体 (.ttf/.woff) <input type="file" accept=".ttf,.otf,.woff,.woff2" class="hidden" onchange="handleFileUpload(event, 'font')" />
+            </label>
+            <div class="flex gap-2">
+               <button onclick="exportProject()" class="flex-1 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded text-[11px] transition-colors">导出工程备份</button>
+               <label class="flex-1 py-2 bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 rounded text-[11px] transition-colors text-center cursor-pointer">
+                 导入工程 <input type="file" accept=".json" class="hidden" onchange="importProject(event)" />
+               </label>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 bg-gray-50 border-t border-gray-200">
+          <button onclick="exportSingle()" class="w-full py-3 bg-gray-800 text-white rounded-md shadow hover:bg-gray-700 font-medium text-sm transition-colors">
+            预览下载(当前高亮画板)
+          </button>
+        </div>
+      </div>
+
+      <!-- 画布区 -->
+      <div class="flex-1 relative bg-gray-200 flex flex-col overflow-hidden" id="workspace-container">
+        
+        <!-- 缩放控制 -->
+        <div class="absolute bottom-6 right-6 bg-white shadow-lg rounded-lg flex items-center p-1 z-20 border border-gray-200">
+          <button onclick="changeScale(-0.1)" class="p-2 hover:bg-gray-100 rounded text-gray-600 font-bold w-8">-</button>
+          <span id="scale-display" class="px-2 text-sm text-gray-600 font-medium min-w-[3.5rem] text-center">60%</span>
+          <button onclick="changeScale(0.1)" class="p-2 hover:bg-gray-100 rounded text-gray-600 font-bold w-8">+</button>
+          <div class="w-px h-4 bg-gray-300 mx-1"></div>
+          <button onclick="resetScale()" class="px-3 py-1 hover:bg-gray-100 rounded text-gray-600 text-xs">重置</button>
+        </div>
+
+        <!-- 内部滚动区 (包含两个独立画板) -->
+        <div class="flex-1 overflow-auto flex flex-col p-8 items-center gap-10" id="scroll-area">
+          <div class="text-sm text-gray-400 bg-white px-4 py-2 rounded-full shadow-sm flex-shrink-0 mb-2">提示：实际导出恒定为 1063 x 354 px (300DPI)</div>
+          
+          <!-- 1. 单价签区域 -->
+          <div class="flex flex-col items-center w-full max-w-[1200px]">
+             <div class="flex justify-between items-end w-full mb-3 px-2" id="header-single">
+                <h3 class="font-bold text-gray-700 flex items-center gap-2 text-lg">
+                   <div class="w-2 h-2 rounded-full bg-indigo-500"></div> 单价签设计区
+                </h3>
+                <label class="px-4 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-md text-sm cursor-pointer hover:bg-gray-50 shadow-sm font-medium transition-colors">
+                   上传单价签底图 <input type="file" accept="image/*" class="hidden" onchange="handleFileUpload(event, 'bg', 'single')" />
+                </label>
+             </div>
+             <div id="wrapper-single" class="relative flex-shrink-0 transition-all duration-200 border-4 rounded-lg shadow-xl overflow-hidden cursor-crosshair box-content">
+               <!-- 虚拟尺寸容器，通过transform scale缩小显示 -->
+               <div id="virtual-canvas-single" class="bg-white absolute top-0 left-0 origin-top-left" style="width: 1063px; height: 354px;" onmousedown="handleCanvasMouseDown(event, 'single')"></div>
+             </div>
+          </div>
+
+          <!-- 2. 双价签区域 -->
+          <div class="flex flex-col items-center w-full max-w-[1200px]">
+             <div class="flex justify-between items-end w-full mb-3 px-2 mt-4" id="header-double">
+                <h3 class="font-bold text-gray-700 flex items-center gap-2 text-lg">
+                   <div class="w-2 h-2 rounded-full bg-amber-500"></div> 双价签设计区
+                </h3>
+                <label class="px-4 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-md text-sm cursor-pointer hover:bg-gray-50 shadow-sm font-medium transition-colors">
+                   上传双价签底图 <input type="file" accept="image/*" class="hidden" onchange="handleFileUpload(event, 'bg', 'double')" />
+                </label>
+             </div>
+             <div id="wrapper-double" class="relative flex-shrink-0 transition-all duration-200 border-4 rounded-lg shadow-xl overflow-hidden cursor-crosshair box-content">
+               <div id="virtual-canvas-double" class="bg-white absolute top-0 left-0 origin-top-left" style="width: 1063px; height: 354px;" onmousedown="handleCanvasMouseDown(event, 'double')"></div>
+             </div>
+          </div>
+
+          <div class="h-20 flex-shrink-0"></div> <!-- 底部留白 -->
+        </div>
+      </div>
+
+      <!-- 属性面板 -->
+      <div class="w-72 bg-white border-l border-gray-200 p-5 overflow-y-auto" id="properties-panel">
+         <!-- 属性将通过JS渲染在此 -->
+      </div>
+    </div>
+
+    <!-- 数据视图 -->
+    <div id="view-data" class="absolute inset-0 bg-white flex-col transition-opacity duration-300 opacity-0 z-0 pointer-events-none flex">
+      <div class="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 flex-shrink-0">
+         <div>
+            <h2 class="text-lg font-bold text-gray-800">商品数据管理</h2>
+            <p class="text-sm text-gray-500">在此填写数据，模板中的占位符将被这些数据替换。</p>
+         </div>
+         <div class="flex gap-2">
+           <button onclick="downloadExcelTemplate()" class="px-3 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md shadow-sm hover:bg-emerald-100 text-sm font-medium transition-colors">⬇️ 下载模板</button>
+           <label class="px-3 py-2 bg-emerald-500 text-white rounded-md shadow-sm hover:bg-emerald-600 text-sm font-medium cursor-pointer flex items-center transition-colors">
+             ⬆️ 导入 Excel <input type="file" accept=".xlsx, .xls" class="hidden" onchange="importExcelData(event)" />
+           </label>
+           <div class="w-px h-6 bg-gray-300 mx-2 self-center"></div>
+           <button onclick="addRow()" class="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-md shadow-sm hover:bg-gray-50 text-sm font-medium">+ 新增</button>
+           <button onclick="exportBatch()" class="px-3 py-2 bg-indigo-100 text-indigo-700 rounded-md shadow-sm hover:bg-indigo-200 text-sm font-medium">单张 ZIP</button>
+           <button id="btn-export-a4" onclick="exportA4Batch()" class="px-4 py-2 bg-indigo-600 text-white rounded-md shadow-sm hover:bg-indigo-700 text-sm font-medium flex items-center gap-1">
+              导出 A4 (3x5)
+           </button>
+         </div>
+      </div>
+      
+      <div class="flex-1 overflow-auto p-6">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-gray-100 text-gray-600 text-sm uppercase tracking-wider">
+              <th class="p-3 font-semibold rounded-tl-lg">类型</th>
+              <th class="p-3 font-semibold">IP名称</th>
+              <th class="p-3 font-semibold">商品名</th>
+              <th class="p-3 font-semibold">主价格</th>
+              <th class="p-3 font-semibold">单位</th>
+              <th class="p-3 font-semibold text-amber-600">副价格</th>
+              <th class="p-3 font-semibold text-amber-600">副单位</th>
+              <th class="p-3 font-semibold text-right rounded-tr-lg">操作</th>
+            </tr>
+          </thead>
+          <tbody id="table-body">
+            <!-- 表格数据JS渲染 -->
+          </tbody>
+        </table>
+        <div id="table-empty" class="text-center py-12 text-gray-500 hidden">暂无数据，请点击上方按钮添加。</div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // --- 核心配置 ---
+    const CANVAS_WIDTH = 1063;
+    const CANVAS_HEIGHT = 354;
+    const PT_TO_PX = 300 / 72; 
+
+    // --- 状态数据 ---
+    let activeTab = 'design';
+    let activeTemplate = 'single'; // 当前点击/激活操作的画板 ('single' 或 'double')
+    let elementsSingle = [];       // 单价签数据
+    let elementsDouble = [];       // 双价签数据
+    let tableData = [];
+    let fonts = [];
+    let selectedId = null;
+    let canvasScale = 0.6;
+    
+    // 拖拽状态
+    let isDragging = false;
+    let dragOffset = { x: 0, y: 0 };
+
+    // 辅助获取当前激活的数据数组
+    function getActiveElements() {
+      return activeTemplate === 'single' ? elementsSingle : elementsDouble;
+    }
+    function setActiveElements(newArr) {
+      if (activeTemplate === 'single') elementsSingle = newArr;
+      else elementsDouble = newArr;
+    }
+
+    // --- 初始化 ---
+    function init() {
+      const savedSingle = localStorage.getItem('pt_elements_single');
+      const savedDouble = localStorage.getItem('pt_elements_double');
+      const savedData = localStorage.getItem('pt_data');
+      const savedFonts = localStorage.getItem('pt_fonts');
+
+      if (savedSingle) elementsSingle = JSON.parse(savedSingle);
+      else elementsSingle = [
+        { id: '1', type: 'text', x: 200, y: 177, content: 'IP名称', fontSize: 12, fontFamily: 'Arial', color: '#000000', bold: false, isPlaceholder: true, placeholderKey: 'ipName' },
+        { id: '2', type: 'text', x: 531, y: 150, content: '商品名称', fontSize: 16, fontFamily: 'Arial', color: '#000000', bold: true, isPlaceholder: true, placeholderKey: 'productName' },
+        { id: '3', type: 'text', x: 531, y: 220, content: '价格', fontSize: 24, fontFamily: 'Arial', color: '#e11d48', bold: true, isPlaceholder: true, placeholderKey: 'price' },
+        { id: '4', type: 'text', x: 800, y: 220, content: '单位', fontSize: 10, fontFamily: 'Arial', color: '#666666', bold: false, isPlaceholder: true, placeholderKey: 'unit' },
+      ];
+
+      if (savedDouble) elementsDouble = JSON.parse(savedDouble);
+      else elementsDouble = [
+        { id: '1', type: 'text', x: 200, y: 177, content: 'IP名称', fontSize: 12, fontFamily: 'Arial', color: '#000000', bold: false, isPlaceholder: true, placeholderKey: 'ipName' },
+        { id: '2', type: 'text', x: 531, y: 150, content: '商品名称', fontSize: 16, fontFamily: 'Arial', color: '#000000', bold: true, isPlaceholder: true, placeholderKey: 'productName' },
+        { id: '3', type: 'text', x: 400, y: 220, content: '价格1', fontSize: 24, fontFamily: 'Arial', color: '#e11d48', bold: true, isPlaceholder: true, placeholderKey: 'price' },
+        { id: '4', type: 'text', x: 520, y: 220, content: '单位1', fontSize: 10, fontFamily: 'Arial', color: '#666666', bold: false, isPlaceholder: true, placeholderKey: 'unit' },
+        { id: '5', type: 'text', x: 680, y: 220, content: '价格2', fontSize: 24, fontFamily: 'Arial', color: '#f59e0b', bold: true, isPlaceholder: true, placeholderKey: 'price2' },
+        { id: '6', type: 'text', x: 800, y: 220, content: '单位2', fontSize: 10, fontFamily: 'Arial', color: '#666666', bold: false, isPlaceholder: true, placeholderKey: 'unit2' },
+      ];
+
+      if (savedData) {
+        tableData = JSON.parse(savedData);
+        // 清理旧数据的 "/"
+        tableData = tableData.map(row => ({
+          ...row,
+          unit: row.unit ? row.unit.replace(/^\//, '') : '',
+          unit2: row.unit2 ? row.unit2.replace(/^\//, '') : ''
+        }));
+      } else {
+        tableData = [
+          { id: '1', type: 'single', ipName: '漫威', productName: '钢铁侠手办', price: '299', unit: '个', price2: '0', unit2: '件' },
+          { id: '2', type: 'double', ipName: '三丽鸥', productName: '库洛米毛绒公仔', price: '99', unit: '只', price2: '899', unit2: '箱' },
+        ];
+      }
+
+      if (savedFonts) fonts = JSON.parse(savedFonts);
+
+      injectFonts();
+      renderAll();
+      setupDragEvents();
+    }
+
+    function saveData() {
+      localStorage.setItem('pt_elements_single', JSON.stringify(elementsSingle));
+      localStorage.setItem('pt_elements_double', JSON.stringify(elementsDouble));
+      localStorage.setItem('pt_data', JSON.stringify(tableData));
+      localStorage.setItem('pt_fonts', JSON.stringify(fonts));
+    }
+
+    // --- 界面渲染 ---
+    function renderAll() {
+      updateCanvasScale();
+      renderCanvas();
+      renderProperties();
+      renderTable();
+      saveData();
+    }
+
+    function switchTab(tab) {
+      activeTab = tab;
+      document.getElementById('view-design').style.opacity = tab === 'design' ? '1' : '0';
+      document.getElementById('view-design').style.pointerEvents = tab === 'design' ? 'auto' : 'none';
+      document.getElementById('view-design').style.zIndex = tab === 'design' ? '10' : '0';
+      
+      document.getElementById('view-data').style.opacity = tab === 'data' ? '1' : '0';
+      document.getElementById('view-data').style.pointerEvents = tab === 'data' ? 'auto' : 'none';
+      document.getElementById('view-data').style.zIndex = tab === 'data' ? '10' : '0';
+
+      document.getElementById('tab-design').className = tab === 'design' ? 'px-4 py-2 rounded-md text-sm font-medium transition-colors bg-white shadow text-indigo-600' : 'px-4 py-2 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-200';
+      document.getElementById('tab-data').className = tab === 'data' ? 'px-4 py-2 rounded-md text-sm font-medium transition-colors bg-white shadow text-indigo-600' : 'px-4 py-2 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-200';
+    }
+
+    function injectFonts() {
+      const styleEl = document.getElementById('font-styles');
+      styleEl.innerHTML = fonts.map(f => `@font-face { font-family: '${f.name}'; src: url(${f.data}) format('truetype'); }`).join('\n');
+    }
+
+    // --- 画布与拖拽 ---
+    function updateCanvasScale() {
+      document.getElementById('scale-display').innerText = Math.round(canvasScale * 100) + '%';
+      
+      // 更新两个外壳的尺寸
+      const w1 = document.getElementById('wrapper-single');
+      const w2 = document.getElementById('wrapper-double');
+      w1.style.width = (CANVAS_WIDTH * canvasScale) + 'px';
+      w1.style.height = (CANVAS_HEIGHT * canvasScale) + 'px';
+      w2.style.width = (CANVAS_WIDTH * canvasScale) + 'px';
+      w2.style.height = (CANVAS_HEIGHT * canvasScale) + 'px';
+
+      // 缩放内部真实DOM
+      document.getElementById('virtual-canvas-single').style.transform = `scale(${canvasScale})`;
+      document.getElementById('virtual-canvas-double').style.transform = `scale(${canvasScale})`;
+    }
+
+    function changeScale(delta) {
+      canvasScale = Math.max(0.2, Math.min(3.0, canvasScale + delta));
+      updateCanvasScale();
+    }
+    function resetScale() { canvasScale = 0.6; updateCanvasScale(); }
+
+    function renderCanvas() {
+      // 1. UI 状态指示器高亮更新
+      const ind = document.getElementById('active-canvas-indicator');
+      const wrapSingle = document.getElementById('wrapper-single');
+      const wrapDouble = document.getElementById('wrapper-double');
+      const headSingle = document.getElementById('header-single');
+      const headDouble = document.getElementById('header-double');
+      
+      if (activeTemplate === 'single') {
+         ind.innerHTML = `<span class="w-2 h-2 rounded-full bg-indigo-500"></span> 单价签模板`;
+         ind.className = "text-sm font-bold text-indigo-600 flex items-center justify-center gap-1";
+         wrapSingle.style.borderColor = '#6366f1'; // indigo-500
+         wrapDouble.style.borderColor = 'transparent';
+         headSingle.style.opacity = '1';
+         headDouble.style.opacity = '0.5';
+      } else {
+         ind.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500"></span> 双价签模板`;
+         ind.className = "text-sm font-bold text-amber-600 flex items-center justify-center gap-1";
+         wrapDouble.style.borderColor = '#f59e0b'; // amber-500
+         wrapSingle.style.borderColor = 'transparent';
+         headDouble.style.opacity = '1';
+         headSingle.style.opacity = '0.5';
+      }
+
+      // 2. 渲染画板内容
+      const containerSingle = document.getElementById('virtual-canvas-single');
+      const containerDouble = document.getElementById('virtual-canvas-double');
+      containerSingle.innerHTML = ''; 
+      containerDouble.innerHTML = '';
+
+      elementsSingle.forEach(el => renderElementToContainer(el, containerSingle, 'single'));
+      elementsDouble.forEach(el => renderElementToContainer(el, containerDouble, 'double'));
+    }
+
+    function renderElementToContainer(el, container, templateType) {
+      if (el.type === 'bg') {
+        const img = document.createElement('img');
+        img.src = el.src;
+        img.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none;`;
+        container.appendChild(img);
+      } else if (el.type === 'img' || el.type === 'svg') {
+        const div = document.createElement('div');
+        div.style.cssText = `position: absolute; left: ${el.x}px; top: ${el.y}px; width: ${el.width}px; height: ${el.height}px; transform: translate(-50%, -50%); outline: ${selectedId === el.id ? '2px dashed #4f46e5' : 'none'}; cursor: move; user-select: none;`;
+        div.onmousedown = (e) => handleElementMouseDown(e, el.id, templateType);
+        const img = document.createElement('img');
+        img.src = el.src;
+        img.style.cssText = "width:100%; height:100%; pointer-events: none;";
+        div.appendChild(img);
+        container.appendChild(div);
+      } else if (el.type === 'text') {
+        const div = document.createElement('div');
+        let displayContent = el.content;
+        if (el.isPlaceholder && tableData.length > 0) {
+           const previewRow = tableData.find(r => r.type === templateType) || tableData[0];
+           displayContent = previewRow[el.placeholderKey] || ''; 
+        }
+        const fontSizePx = el.fontSize * PT_TO_PX;
+        
+        // 【关键修复】加入了 -webkit-font-smoothing: antialiased 和 -moz-osx-font-smoothing: grayscale
+        // 这会关闭浏览器的次像素发光渲染，让文字线条变得更纤细，更贴近 Illustrator/PS 的专业渲染引擎表现
+        div.style.cssText = `position: absolute; left: ${el.x}px; top: ${el.y}px; transform: translate(-50%, -50%); font-size: ${fontSizePx}px; font-family: ${el.fontFamily}; color: ${el.color}; font-weight: ${el.bold ? 'bold' : 'normal'}; line-height: 1; white-space: nowrap; outline: ${selectedId === el.id ? '2px dashed #4f46e5' : 'none'}; cursor: move; user-select: none; padding: 2px; text-align: center; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;`;
+        
+        div.innerText = displayContent;
+        div.onmousedown = (e) => handleElementMouseDown(e, el.id, templateType);
+        container.appendChild(div);
+      }
+    }
+
+    function handleCanvasMouseDown(e, templateType) {
+      if (e.target.id === `virtual-canvas-${templateType}`) {
+        activeTemplate = templateType;
+        selectedId = null;
+        renderAll();
+      }
+    }
+
+    function handleElementMouseDown(e, id, templateType) {
+      e.stopPropagation();
+      activeTemplate = templateType; // 自动聚焦到点击的画板
+      selectedId = id;
+      
+      const activeElements = getActiveElements();
+      const el = activeElements.find(el => el.id === id);
+      if (!el) return;
+
+      const rect = document.getElementById(`virtual-canvas-${templateType}`).getBoundingClientRect();
+      const mouseX = (e.clientX - rect.left) / canvasScale;
+      const mouseY = (e.clientY - rect.top) / canvasScale;
+      
+      dragOffset = { x: mouseX - el.x, y: mouseY - el.y };
+      isDragging = true;
+      renderAll();
+    }
+
+    function setupDragEvents() {
+      window.addEventListener('mousemove', (e) => {
+        if (!isDragging || !selectedId) return;
+        
+        const containerId = `virtual-canvas-${activeTemplate}`;
+        const rect = document.getElementById(containerId).getBoundingClientRect();
+        const mouseX = (e.clientX - rect.left) / canvasScale;
+        const mouseY = (e.clientY - rect.top) / canvasScale;
+
+        if (activeTemplate === 'single') {
+           elementsSingle = elementsSingle.map(el => el.id === selectedId ? { ...el, x: mouseX - dragOffset.x, y: mouseY - dragOffset.y } : el);
+        } else {
+           elementsDouble = elementsDouble.map(el => el.id === selectedId ? { ...el, x: mouseX - dragOffset.x, y: mouseY - dragOffset.y } : el);
+        }
+        renderCanvas(); // 仅渲染画布防卡顿
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (isDragging) {
+          isDragging = false;
+          renderAll(); // 结束保存
+        }
+      });
+    }
+
+    // --- 属性面板 ---
+    function updateSelectedElement(key, value) {
+      if (activeTemplate === 'single') {
+        elementsSingle = elementsSingle.map(el => el.id === selectedId ? { ...el, [key]: value } : el);
+      } else {
+        elementsDouble = elementsDouble.map(el => el.id === selectedId ? { ...el, [key]: value } : el);
+      }
+      renderAll();
+    }
+
+    function renderProperties() {
+      const panel = document.getElementById('properties-panel');
+      const activeElements = getActiveElements();
+      const selectedEl = activeElements.find(el => el.id === selectedId);
+      
+      const activeElementId = document.activeElement ? document.activeElement.id : null;
+
+      if (!selectedEl) {
+        panel.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-gray-400 text-sm"><svg class="w-12 h-12 mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path></svg><p>点击激活画板中的元素</p><p>以编辑其属性</p></div>`;
+        return;
+      }
+
+      let html = `<div class="flex flex-col gap-4">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800">属性设置</h3>
+          <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded">${selectedEl.type === 'text' ? '文本' : '图片'}</span>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-xs text-gray-500 mb-1">X 坐标 (中心)</label><input id="prop-x" type="number" value="${Math.round(selectedEl.x)}" oninput="updateSelectedElement('x', Number(this.value))" class="w-full border rounded p-1 text-sm bg-gray-50" /></div>
+          <div><label class="block text-xs text-gray-500 mb-1">Y 坐标 (中心)</label><input id="prop-y" type="number" value="${Math.round(selectedEl.y)}" oninput="updateSelectedElement('y', Number(this.value))" class="w-full border rounded p-1 text-sm bg-gray-50" /></div>
+        </div>`;
+
+      if (selectedEl.type === 'img' || selectedEl.type === 'svg') {
+        html += `<div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-xs text-gray-500 mb-1">宽度</label><input id="prop-w" type="number" value="${Math.round(selectedEl.width)}" oninput="updateSelectedElement('width', Number(this.value))" class="w-full border rounded p-1 text-sm bg-gray-50" /></div>
+          <div><label class="block text-xs text-gray-500 mb-1">高度</label><input id="prop-h" type="number" value="${Math.round(selectedEl.height)}" oninput="updateSelectedElement('height', Number(this.value))" class="w-full border rounded p-1 text-sm bg-gray-50" /></div>
+        </div>`;
+      }
+
+      if (selectedEl.type === 'text') {
+        if (!selectedEl.isPlaceholder) {
+          html += `<div><label class="block text-xs text-gray-500 mb-1">文本内容</label><input id="prop-content" type="text" value="${selectedEl.content}" oninput="updateSelectedElement('content', this.value)" class="w-full border rounded p-2 text-sm bg-gray-50" /></div>`;
+        }
+        
+        let fontOptions = `<option value="Arial" ${selectedEl.fontFamily==='Arial'?'selected':''}>Arial (默认)</option>
+                           <option value="'Microsoft YaHei', sans-serif" ${selectedEl.fontFamily.includes('YaHei')?'selected':''}>微软雅黑</option>
+                           <option value="'SimSun', serif" ${selectedEl.fontFamily.includes('SimSun')?'selected':''}>宋体</option>
+                           <option value="'KaiTi', serif" ${selectedEl.fontFamily.includes('KaiTi')?'selected':''}>楷体</option>`;
+        if(fonts.length > 0) {
+          fontOptions += `<optgroup label="已上传自定义字体">` + fonts.map(f => `<option value="'${f.name}'" ${selectedEl.fontFamily===`'${f.name}'`?'selected':''}>${f.name}</option>`).join('') + `</optgroup>`;
+        }
+
+        html += `
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">字体大小 (pt)</label>
+          <div class="flex items-center gap-2">
+            <input id="prop-fontsize-range" type="range" min="4" max="100" value="${selectedEl.fontSize}" oninput="updateSelectedElement('fontSize', Number(this.value))" class="flex-1" />
+            <input id="prop-fontsize-input" type="number" min="4" max="100" value="${selectedEl.fontSize}" oninput="updateSelectedElement('fontSize', Number(this.value))" class="w-16 border rounded p-1 text-sm bg-gray-50 text-center" />
+            <span class="text-sm w-6 text-gray-500">pt</span>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">字体选择</label>
+          <select id="prop-font" onchange="updateSelectedElement('fontFamily', this.value)" class="w-full border rounded p-2 text-sm bg-gray-50">${fontOptions}</select>
+        </div>
+        <div class="flex gap-4 items-center">
+           <div class="flex-1">
+              <label class="block text-xs text-gray-500 mb-1">颜色</label>
+              <div class="flex items-center gap-2">
+                <input id="prop-color" type="color" value="${selectedEl.color}" oninput="updateSelectedElement('color', this.value)" class="h-8 w-8 cursor-pointer border-0 p-0 rounded overflow-hidden" />
+                <span class="text-sm uppercase text-gray-600 font-mono">${selectedEl.color}</span>
+              </div>
+           </div>
+           <div>
+              <label class="block text-xs text-gray-500 mb-1">加粗</label>
+              <button onclick="updateSelectedElement('bold', ${!selectedEl.bold})" class="p-1.5 rounded border ${selectedEl.bold ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300'}"><span class="font-bold">B</span></button>
+           </div>
+        </div>`;
+      }
+
+      html += `<hr class="border-gray-100 my-2" /><button onclick="deleteSelected()" class="w-full py-2 bg-red-50 text-red-600 border border-red-200 rounded text-sm hover:bg-red-100 transition-colors">删除元素</button></div>`;
+      
+      panel.innerHTML = html;
+
+      if (activeElementId) {
+        const el = document.getElementById(activeElementId);
+        if (el) {
+          el.focus();
+          if (el.type === 'text' || el.type === 'number') {
+            const val = el.value; el.value = ''; el.value = val;
+          }
+        }
+      }
+    }
+
+    // --- 添加与操作 (均定向到 activeTemplate) ---
+    function addPlaceholder(name, key, color, size, bold=false) {
+      const newEl = { id: Date.now().toString(), type: 'text', x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, content: name, fontSize: size, fontFamily: 'Arial', color: color, bold: bold, isPlaceholder: true, placeholderKey: key };
+      if (activeTemplate === 'single') elementsSingle.push(newEl);
+      else elementsDouble.push(newEl);
+      selectedId = newEl.id;
+      renderAll();
+    }
+    
+    function addNormalText() {
+      const newEl = { id: Date.now().toString(), type: 'text', x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, content: '自定义文本', isPlaceholder: false, fontSize: 12, fontFamily: 'Arial', color: '#000000', bold: false };
+      if (activeTemplate === 'single') elementsSingle.push(newEl);
+      else elementsDouble.push(newEl);
+      selectedId = newEl.id;
+      renderAll();
+    }
+
+    function deleteSelected() {
+      if (activeTemplate === 'single') {
+         elementsSingle = elementsSingle.filter(el => el.id !== selectedId);
+      } else {
+         elementsDouble = elementsDouble.filter(el => el.id !== selectedId);
+      }
+      selectedId = null;
+      renderAll();
+    }
+
+    function handleFileUpload(e, type, explicitTarget = null) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      
+      reader.onload = (event) => {
+        const dataUrl = event.target.result;
+        
+        if (type === 'bg' || type === 'img' || type === 'svg') {
+          const img = new Image();
+          img.onload = () => {
+            if (type === 'bg') {
+              // 背景图直接替换目标画板的背景
+              const target = explicitTarget || activeTemplate;
+              if (target === 'single') {
+                 elementsSingle = elementsSingle.filter(el => el.type !== 'bg');
+                 elementsSingle.unshift({ id: 'bg-' + Date.now(), type: 'bg', src: dataUrl, x: 0, y: 0, width: CANVAS_WIDTH, height: CANVAS_HEIGHT });
+              } else {
+                 elementsDouble = elementsDouble.filter(el => el.type !== 'bg');
+                 elementsDouble.unshift({ id: 'bg-' + Date.now(), type: 'bg', src: dataUrl, x: 0, y: 0, width: CANVAS_WIDTH, height: CANVAS_HEIGHT });
+              }
+            } else {
+               // 插入图片到当前高亮的画板
+               let w = img.width, h = img.height;
+               const maxH = CANVAS_HEIGHT / 2;
+               if (h > maxH) { w = w * (maxH / h); h = maxH; }
+               const newEl = { id: Date.now().toString(), type: type, src: dataUrl, x: CANVAS_WIDTH/2, y: CANVAS_HEIGHT/2, width: w, height: h };
+               
+               if (activeTemplate === 'single') elementsSingle.push(newEl);
+               else elementsDouble.push(newEl);
+               selectedId = newEl.id;
+            }
+            renderAll();
+          };
+          img.src = dataUrl;
+        } else if (type === 'font') {
+          let fontName = file.name.split('.')[0].replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now().toString().slice(-4);
+          fonts.push({ name: fontName, data: dataUrl });
+          injectFonts();
+          renderAll();
+          alert(`字体 "${file.name}" 上传成功！`);
+        }
+      };
+      reader.readAsDataURL(file);
+      e.target.value = ''; 
+    }
+
+    // --- 数据表格 ---
+    function renderTable() {
+      const tbody = document.getElementById('table-body');
+      const empty = document.getElementById('table-empty');
+      if (tableData.length === 0) {
+        tbody.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+      tbody.innerHTML = tableData.map((row) => `
+        <tr class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+          <td class="p-2 w-28">
+            <select onchange="updateRow('${row.id}', 'type', this.value)" class="w-full p-2 border border-gray-200 hover:border-gray-300 focus:border-indigo-500 rounded bg-white outline-none cursor-pointer text-sm font-medium ${row.type === 'double' ? 'text-amber-600' : 'text-indigo-600'}">
+              <option value="single" ${row.type === 'single' ? 'selected' : ''}>单价签</option>
+              <option value="double" ${row.type === 'double' ? 'selected' : ''}>双价签</option>
+            </select>
+          </td>
+          <td class="p-2"><input type="text" value="${row.ipName}" onchange="updateRow('${row.id}', 'ipName', this.value)" class="w-full p-2 border border-transparent hover:border-gray-300 focus:border-indigo-500 rounded bg-transparent focus:bg-white outline-none" /></td>
+          <td class="p-2"><input type="text" value="${row.productName}" onchange="updateRow('${row.id}', 'productName', this.value)" class="w-full p-2 border border-transparent hover:border-gray-300 focus:border-indigo-500 rounded bg-transparent focus:bg-white outline-none" /></td>
+          <td class="p-2"><input type="text" value="${row.price}" onchange="updateRow('${row.id}', 'price', this.value)" class="w-full p-2 border border-transparent hover:border-gray-300 focus:border-indigo-500 rounded bg-transparent focus:bg-white outline-none text-red-600 font-bold" /></td>
+          <td class="p-2"><input type="text" value="${row.unit}" onchange="updateRow('${row.id}', 'unit', this.value)" class="w-full p-2 border border-transparent hover:border-gray-300 focus:border-indigo-500 rounded bg-transparent focus:bg-white outline-none" /></td>
+          <td class="p-2"><input type="text" value="${row.price2}" onchange="updateRow('${row.id}', 'price2', this.value)" class="w-full p-2 border border-transparent hover:border-gray-300 focus:border-amber-500 rounded bg-transparent focus:bg-white outline-none text-amber-600 font-bold transition-opacity" ${row.type === 'single' ? 'disabled style="opacity: 0.3"' : ''} /></td>
+          <td class="p-2"><input type="text" value="${row.unit2}" onchange="updateRow('${row.id}', 'unit2', this.value)" class="w-full p-2 border border-transparent hover:border-gray-300 focus:border-amber-500 rounded bg-transparent focus:bg-white outline-none transition-opacity" ${row.type === 'single' ? 'disabled style="opacity: 0.3"' : ''} /></td>
+          <td class="p-2 text-right"><button onclick="deleteRow('${row.id}')" class="text-gray-400 hover:text-red-500 p-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button></td>
+        </tr>
+      `).join('');
+    }
+
+    function addRow() {
+      tableData.push({ id: Date.now().toString(), type: 'single', ipName: '新IP', productName: '新商品', price: '0', unit: '个', price2: '0', unit2: '件' });
+      renderAll();
+    }
+    function updateRow(id, key, value) {
+      tableData = tableData.map(row => row.id === id ? { ...row, [key]: value } : row);
+      renderAll();
+    }
+    function deleteRow(id) {
+      tableData = tableData.filter(row => row.id !== id);
+      renderAll();
+    }
+
+    // --- 导出与生成逻辑 ---
+    async function renderTagToCanvas(rowData) {
+      const canvas = document.createElement('canvas');
+      canvas.width = CANVAS_WIDTH;
+      canvas.height = CANVAS_HEIGHT;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await document.fonts.ready;
+
+      // 智能匹配目标画板数据和当前类型
+      let targetElements = getActiveElements(); 
+      let currentType = activeTemplate;
+      if (rowData) {
+         targetElements = rowData.type === 'double' ? elementsDouble : elementsSingle;
+         currentType = rowData.type;
+      }
+
+      for (const el of targetElements) {
+        if (el.type === 'bg' || el.type === 'img' || el.type === 'svg') {
+          const img = new Image();
+          await new Promise(resolve => { img.onload = resolve; img.src = el.src; });
+          if (el.type === 'bg') {
+            ctx.drawImage(img, el.x, el.y, el.width, el.height);
+          } else {
+            ctx.drawImage(img, el.x - el.width/2, el.y - el.height/2, el.width, el.height);
+          }
+        } else if (el.type === 'text') {
+          let textContent = el.content;
+          if (el.isPlaceholder && rowData) {
+              textContent = rowData[el.placeholderKey] || '';
+              
+              // 导出时，仅针对单价签模板自动保留两位小数
+              if (currentType === 'single' && (el.placeholderKey === 'price' || el.placeholderKey === 'price2')) {
+                 if (!isNaN(textContent) && String(textContent).trim() !== '') {
+                    textContent = Number(textContent).toFixed(2);
+                 }
+              }
+          }
+          const fontSizePx = el.fontSize * PT_TO_PX;
+          ctx.font = `${el.bold ? 'bold ' : 'normal '}${fontSizePx}px ${el.fontFamily}`;
+          ctx.fillStyle = el.color;
+          ctx.textAlign = 'center'; 
+          ctx.textBaseline = 'middle'; 
+          
+          const yOffset = fontSizePx * 0.065;
+          ctx.fillText(textContent, el.x, el.y + yOffset);
+        }
+      }
+      return canvas.toDataURL('image/jpeg', 1.0);
+    }
+
+    async function exportSingle() {
+      try {
+        const previewRow = tableData.find(r => r.type === activeTemplate) || tableData[0];
+        const dataUrl = await renderTagToCanvas(previewRow);
+        const link = document.createElement('a');
+        link.download = `价签_${previewRow ? previewRow.productName : '模板'}.jpg`;
+        link.href = dataUrl;
+        link.click();
+      } catch (e) { alert("导出失败"); console.error(e); }
+    }
+
+    async function exportBatch() {
+      if (tableData.length === 0) return alert('表格中没有数据！');
+      try {
+        const zip = new JSZip();
+        for (let i = 0; i < tableData.length; i++) {
+          const row = tableData[i];
+          const dataUrl = await renderTagToCanvas(row);
+          const base64Data = dataUrl.replace(/^data:image\/jpeg;base64,/, "");
+          const safeName = (row.productName || `商品_${i}`).replace(/[\/\?<>\\:\*\|":]/g, '');
+          zip.file(`价签_${safeName}_${i+1}.jpg`, base64Data, {base64: true});
+        }
+        const content = await zip.generateAsync({type:"blob"});
+        saveAs(content, "单张批量价签_300dpi.zip");
+      } catch (error) { alert('导出失败'); console.error(error); }
+    }
+
+    async function exportA4Batch() {
+      if (tableData.length === 0) return alert('表格中没有数据！');
+      
+      try {
+        const btn = document.getElementById('btn-export-a4');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '正在生成 A4...';
+        btn.disabled = true;
+
+        const zip = new JSZip();
+        const A4_WIDTH = 3508;
+        const A4_HEIGHT = 2480;
+        const TAG_WIDTH = CANVAS_WIDTH;
+        const TAG_HEIGHT = CANVAS_HEIGHT;
+        const COLS = 3;
+        const ROWS = 5;
+        const ITEMS_PER_PAGE = COLS * ROWS;
+
+        const gapX = (A4_WIDTH - (TAG_WIDTH * COLS)) / (COLS + 1);
+        const gapY = (A4_HEIGHT - (TAG_HEIGHT * ROWS)) / (ROWS + 1);
+
+        let pageIndex = 1;
+        let currentCanvas = document.createElement('canvas');
+        currentCanvas.width = A4_WIDTH;
+        currentCanvas.height = A4_HEIGHT;
+        let currentCtx = currentCanvas.getContext('2d');
+        currentCtx.fillStyle = '#ffffff';
+        currentCtx.fillRect(0, 0, A4_WIDTH, A4_HEIGHT);
+
+        for (let i = 0; i < tableData.length; i++) {
+          const row = tableData[i];
+          const tagDataUrl = await renderTagToCanvas(row);
+          const img = new Image();
+          await new Promise(resolve => { img.onload = resolve; img.src = tagDataUrl; });
+
+          const posInPage = i % ITEMS_PER_PAGE;
+          const col = posInPage % COLS;
+          const rowIdx = Math.floor(posInPage / COLS);
+
+          const x = gapX + col * (TAG_WIDTH + gapX);
+          const y = gapY + rowIdx * (TAG_HEIGHT + gapY);
+
+          currentCtx.drawImage(img, x, y, TAG_WIDTH, TAG_HEIGHT);
+
+          if (posInPage === ITEMS_PER_PAGE - 1 || i === tableData.length - 1) {
+            const a4DataUrl = currentCanvas.toDataURL('image/jpeg', 1.0);
+            const base64Data = a4DataUrl.replace(/^data:image\/jpeg;base64,/, "");
+            zip.file(`A4排版打印_第${pageIndex}页.jpg`, base64Data, {base64: true});
+
+            if (i < tableData.length - 1) {
+              pageIndex++;
+              currentCanvas = document.createElement('canvas');
+              currentCanvas.width = A4_WIDTH;
+              currentCanvas.height = A4_HEIGHT;
+              currentCtx = currentCanvas.getContext('2d');
+              currentCtx.fillStyle = '#ffffff';
+              currentCtx.fillRect(0, 0, A4_WIDTH, A4_HEIGHT);
+            }
+          }
+        }
+
+        const content = await zip.generateAsync({type:"blob"});
+        saveAs(content, "A4排版价签_横向打印.zip");
+
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+      } catch (error) {
+        alert('A4导出失败'); console.error(error);
+      }
+    }
+
+    // --- 工程管理 ---
+    function exportProject() {
+      const projectData = { elementsSingle, elementsDouble, tableData, fonts };
+      const blob = new Blob([JSON.stringify(projectData)], { type: "application/json" });
+      saveAs(blob, "价签工程备份.json");
+    }
+
+    function importProject(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const projectData = JSON.parse(event.target.result);
+          if (projectData.elementsSingle) elementsSingle = projectData.elementsSingle;
+          if (projectData.elementsDouble) elementsDouble = projectData.elementsDouble;
+          if (projectData.tableData) tableData = projectData.tableData;
+          if (projectData.fonts) fonts = projectData.fonts;
+          
+          injectFonts();
+          renderAll();
+          alert('工程导入成功！');
+        } catch (err) {
+          alert('文件格式错误！');
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    }
+
+    // --- Excel 导入与下载功能 ---
+    async function downloadExcelTemplate() {
+      if (typeof ExcelJS === 'undefined') {
+        alert('Excel 处理库正在加载中，请稍等一两秒再试。');
+        return;
+      }
+      
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('价签数据');
+
+      // 1. 设置精美的表头与列宽
+      ws.columns = [
+        { header: '类型', key: 'type', width: 15 },
+        { header: 'IP名称', key: 'ip', width: 20 },
+        { header: '商品名', key: 'product', width: 35 },
+        { header: '主价格', key: 'price', width: 12 },
+        { header: '单位', key: 'unit', width: 15 },
+        { header: '副价格', key: 'price2', width: 12 },
+        { header: '副单位', key: 'unit2', width: 15 }
+      ];
+
+      // 2. 填充默认的几行数据
+      ws.addRow(['单价签', '漫威', '钢铁侠手办', 299, '个', 0, '件']);
+      ws.addRow(['双价签', '三丽鸥', '库洛米毛绒公仔', 99, '只', 899, '箱']);
+
+      // 3. 批量设置前 1000 行的数据验证（下拉菜单）
+      for (let i = 2; i <= 1000; i++) {
+        // 第一列：类型
+        ws.getCell(`A${i}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"单价签,双价签"']
+        };
+        // 第五列：单位
+        ws.getCell(`E${i}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"盒,小盒,只,包,支,板,本,个"']
+        };
+        // 第七列：副单位
+        ws.getCell(`G${i}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"盒,小盒,只,包,支,板,本,个"']
+        };
+      }
+
+      // 4. 表头样式美化 (深蓝色底，白字粗体)
+      ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+      ws.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+      // 5. 导出文件
+      try {
+        const buffer = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        saveAs(blob, "价签批量导入模板(带下拉验证).xlsx");
+      } catch (e) {
+        console.error(e);
+        alert('导出失败，请检查浏览器是否拦截了下载。');
+      }
+    }
+
+    function importExcelData(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        try {
+          const data = new Uint8Array(event.target.result);
+          const workbook = XLSX.read(data, {type: 'array'});
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          
+          // 将 Excel 工作表一键转为 2D 数组 (跳过空行)
+          const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+
+          if (json.length <= 1) {
+             alert('表格中没有识别到有效数据！');
+             return;
+          }
+
+          let newRows = [];
+          // 从第 2 行开始遍历（跳过表头行）
+          for (let i = 1; i < json.length; i++) {
+            const row = json[i];
+            
+            // 忽略完全为空或者连 IP / 商品名都没写的无效行
+            if (!row || row.length === 0 || (!row[1] && !row[2])) continue; 
+
+            // 第一列智能兼容。系统现在能识别真实的中文下拉菜单“双价签”或“单价签”
+            let typeStr = row[0] ? String(row[0]).trim() : '';
+            let type = (typeStr === 'double' || typeStr === '双价签') ? 'double' : 'single';
+
+            newRows.push({
+              id: Date.now().toString() + '_' + i,
+              type: type,
+              ipName: row[1] !== undefined ? String(row[1]).trim() : '',
+              productName: row[2] !== undefined ? String(row[2]).trim() : '',
+              price: row[3] !== undefined ? String(row[3]).trim() : '0',
+              unit: row[4] !== undefined ? String(row[4]).trim() : '',
+              price2: row[5] !== undefined ? String(row[5]).trim() : '0',
+              unit2: row[6] !== undefined ? String(row[6]).trim() : ''
+            });
+          }
+
+          if (newRows.length > 0) {
+             // 自动追加在当前已有数据的后方
+             tableData = tableData.concat(newRows);
+             renderAll();
+             alert(`太棒了！已成功解析并导入 ${newRows.length} 条价签数据。`);
+          } else {
+             alert('未读取到有效的数据行，请检查表格格式是否被修改。');
+          }
+        } catch (err) {
+          console.error(err);
+          alert('导入失败！请确保上传的是未经损坏的合法 Excel (.xlsx) 文件。');
+        }
+      };
+      
+      reader.readAsArrayBuffer(file);
+      // 清空 input 状态，允许您立刻重复导入同一个被修改过的文件
+      e.target.value = ''; 
+    }
+
+    // 启动
+    init();
+  </script>
+</body>
+</html>
